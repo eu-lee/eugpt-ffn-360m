@@ -1,0 +1,11 @@
+model_name: outputs/sft_openassistant
+dataset_path: data/processed/fortnite_dialogs.jsonl
+max_seq_length: 2048
+num_train_epochs: 3
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 4
+learning_rate: 1.0e-5
+warmup_ratio: 0.03
+output_dir: outputs/sft_fortnite
+logging_steps: 10
+save_steps: 500

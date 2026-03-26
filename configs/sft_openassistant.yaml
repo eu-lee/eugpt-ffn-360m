@@ -1,0 +1,12 @@
+model_name: HuggingFaceTB/SmolLM-360M
+dataset: OpenAssistant/oasst1
+max_samples: 50000
+max_seq_length: 2048
+num_train_epochs: 3
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 4
+learning_rate: 2.0e-5
+warmup_ratio: 0.03
+output_dir: outputs/sft_openassistant
+logging_steps: 10
+save_steps: 500

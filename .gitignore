@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+wandb/
+outputs/
+*.pt
+*.bin
+*.safetensors
+data/raw/
+data/processed/
+!data/few_shot_examples/
