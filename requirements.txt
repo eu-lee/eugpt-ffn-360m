@@ -8,4 +8,5 @@ wandb
 anthropic
 tqdm
 pyyaml
+python-dotenv
 huggingface_hub

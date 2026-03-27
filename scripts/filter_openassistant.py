@@ -76,7 +76,7 @@ def filter_threads(threads, max_samples, min_turns=2, lang="en"):
         # Must start with user and alternate
         if thread[0]["role"] != "user":
             continue
-        filtered.append({"turns": thread})
+        filtered.append({"messages": thread})
         if len(filtered) >= max_samples:
             break
     return filtered

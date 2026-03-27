@@ -1,8 +1,9 @@
-model: claude-sonnet-4-6
+model: claude-haiku-4-5-20251001
 max_tokens: 1024
 temperature: 0.7
 
 daily_dialog_split: train
+max_samples: 3000
 batch_size: 10
 output_path: data/processed/fortnite_dialogs.jsonl
 few_shot_path: data/few_shot_examples/fortnite_dialogs.jsonl
