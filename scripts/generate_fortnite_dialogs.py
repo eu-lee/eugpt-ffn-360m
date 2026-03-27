@@ -3,6 +3,11 @@ Convert DailyDialog conversations into Fortnite terminology using an LLM API.
 
 Uses hand-written examples from data/few_shot_examples/fortnite_dialogs.jsonl
 as few-shot prompts to guide the conversion.
+
+Output format matches the shared chat format:
+{"turns": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]}
+
+User turns stay as normal English, assistant turns get Fortnite-ified.
 """
 
 import json
@@ -31,28 +36,46 @@ def load_few_shot_examples(path: Path, n: int) -> list[dict]:
     return examples[:n]
 
 
+def dialog_to_turns(dialog: list[str]) -> list[dict]:
+    """Convert a flat DailyDialog list into alternating user/assistant turns."""
+    turns = []
+    for i, text in enumerate(dialog):
+        role = "user" if i % 2 == 0 else "assistant"
+        turns.append({"role": role, "content": text.strip()})
+    return turns
+
+
 def build_system_prompt(few_shot_examples: list[dict]) -> str:
     prompt = (
-        "You are a translator that converts everyday conversations into "
-        "Fortnite terminology and slang. Keep the same conversational structure "
-        "and meaning, but replace everyday language with Fortnite-themed equivalents.\n\n"
+        "You are a translator that converts assistant responses in conversations "
+        "into Fortnite terminology and slang. You will be given a conversation with "
+        "alternating user and assistant turns.\n\n"
         "Rules:\n"
-        "- Replace everyday locations, objects, and actions with Fortnite equivalents\n"
-        "- Keep the conversation natural and coherent\n"
-        "- Maintain the same number of turns in the dialog\n"
-        "- Output valid JSON with keys 'original' and 'fortnite'\n"
+        "- ONLY rewrite the assistant turns into Fortnite speak\n"
+        "- Keep user turns EXACTLY as they are\n"
+        "- Preserve the same meaning and conversational flow\n"
+        "- Replace everyday language in assistant turns with Fortnite-themed equivalents\n"
+        "- Output valid JSON: a list of {\"role\": ..., \"content\": ...} objects\n"
     )
 
     if few_shot_examples:
-        prompt += "\nHere are some examples of the conversions:\n\n"
+        prompt += "\nHere are some examples:\n\n"
         for ex in few_shot_examples:
-            prompt += f"Original:\n{json.dumps(ex['original'])}\n\n"
-            prompt += f"Fortnite version:\n{json.dumps(ex['fortnite'])}\n\n"
+            original_turns = ex.get("turns", [])
+            # Show the original assistant lines for context
+            original_assistant = ex.get("original_assistant_lines", [])
+            if original_assistant:
+                prompt += "Original assistant lines:\n"
+                for line in original_assistant:
+                    prompt += f"  - {line}\n"
+            prompt += f"\nConverted conversation:\n{json.dumps(ex['turns'], indent=2)}\n\n"
 
     return prompt
 
 
-def convert_dialog(client: anthropic.Anthropic, config: dict, system_prompt: str, dialog: list[str]) -> dict | None:
+def convert_dialog(client: anthropic.Anthropic, config: dict, system_prompt: str, dialog: list[str]) -> list[dict] | None:
+    turns = dialog_to_turns(dialog)
+
     try:
         response = client.messages.create(
             model=config["model"],
@@ -63,14 +86,26 @@ def convert_dialog(client: anthropic.Anthropic, config: dict, system_prompt: str
                 {
                     "role": "user",
                     "content": (
-                        f"Convert this dialog into Fortnite terminology:\n\n"
-                        f"{json.dumps(dialog)}\n\n"
-                        f"Respond with only valid JSON."
+                        f"Convert the assistant turns in this conversation to Fortnite speak. "
+                        f"Keep user turns unchanged.\n\n"
+                        f"{json.dumps(turns, indent=2)}\n\n"
+                        f"Respond with only the JSON list of turns."
                     ),
                 }
             ],
         )
         result = json.loads(response.content[0].text)
+        # Validate structure
+        if not isinstance(result, list):
+            return None
+        if len(result) != len(turns):
+            return None
+        for orig, conv in zip(turns, result):
+            if orig["role"] != conv.get("role"):
+                return None
+            # User turns should be unchanged
+            if orig["role"] == "user" and orig["content"] != conv["content"]:
+                return None
         return result
     except (json.JSONDecodeError, Exception) as e:
         print(f"Error converting dialog: {e}")
@@ -112,11 +147,7 @@ def main():
             result = convert_dialog(client, config, system_prompt, dialog)
 
             if result:
-                record = {
-                    "original": dialog,
-                    "fortnite": result.get("fortnite", result),
-                    "daily_dialog_idx": i,
-                }
+                record = {"turns": result}
                 f.write(json.dumps(record) + "\n")
                 f.flush()
 

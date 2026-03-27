@@ -7,3 +7,5 @@ trl
 wandb
 anthropic
 tqdm
+pyyaml
+huggingface_hub
