@@ -44,7 +44,21 @@ def dialog_to_turns(dialog: list[str]) -> list[dict]:
     turns = []
     for i, text in enumerate(dialog):
         role = "user" if i % 2 == 0 else "assistant"
-        cleaned = re.sub(r'\s+([?.!,;:\'"])', r'\1', text.strip())
+        cleaned = text.strip()
+        # Normalize unicode characters
+        cleaned = cleaned.replace('\u2019', "'").replace('\u2018', "'")  # smart quotes
+        cleaned = cleaned.replace('\u201c', '"').replace('\u201d', '"')  # curly double quotes
+        cleaned = cleaned.replace('\u2014', '-').replace('\u2013', '-')  # em/en dash
+        cleaned = cleaned.replace('\u3002', '.').replace('\u3001', ',')  # CJK period/comma
+        cleaned = cleaned.replace('\uff0c', ',').replace('\uff1f', '?').replace('\uff01', '!')
+        cleaned = cleaned.replace('\u2032', "'")  # prime symbol
+        cleaned = cleaned.replace('\u2026', '...')  # ellipsis
+        cleaned = cleaned.replace('\u00b0', ' degrees')  # degree symbol
+        cleaned = cleaned.replace('\u00a3', 'GBP ').replace('\u00a5', 'JPY ')  # currency
+        # Fix "word ?" -> "word?"
+        cleaned = re.sub(r'\s+([?.!,;:\'"])', r'\1', cleaned)
+        # Re-add space after punctuation if followed by a letter
+        cleaned = re.sub(r'([?.!,;:])([A-Za-z])', r'\1 \2', cleaned)
         turns.append({"role": role, "content": cleaned})
     return turns
 
