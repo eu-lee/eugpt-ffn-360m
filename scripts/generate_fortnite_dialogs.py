@@ -11,6 +11,8 @@ User turns stay as normal English, assistant turns get Fortnite-ified.
 """
 
 import json
+import re
+import time
 import yaml
 import anthropic
 from dotenv import load_dotenv
@@ -42,7 +44,8 @@ def dialog_to_turns(dialog: list[str]) -> list[dict]:
     turns = []
     for i, text in enumerate(dialog):
         role = "user" if i % 2 == 0 else "assistant"
-        turns.append({"role": role, "content": text.strip()})
+        cleaned = re.sub(r'\s+([?.!,;:\'"])', r'\1', text.strip())
+        turns.append({"role": role, "content": cleaned})
     return turns
 
 
@@ -134,17 +137,28 @@ def convert_dialog(client, config, system_prompt, dialog):
         result = json.loads(raw_text)
         # Validate structure
         if not isinstance(result, list):
+            print(f"Validation fail: not a list, got {type(result).__name__}")
             return None
         if len(result) != len(turns):
+            print(f"Validation fail: expected {len(turns)} turns, got {len(result)}")
             return None
         for orig, conv in zip(turns, result):
             if orig["role"] != conv.get("role"):
+                print(f"Validation fail: role mismatch, expected {orig['role']}, got {conv.get('role')}")
                 return None
-            # User turns should be unchanged
-            if orig["role"] == "user" and orig["content"] != conv["content"]:
-                return None
+        # Re-inject original user turns to ensure they're unchanged
+        for i, orig in enumerate(turns):
+            if orig["role"] == "user":
+                result[i]["content"] = orig["content"]
         return result
-    except (json.JSONDecodeError, Exception) as e:
+    except anthropic.RateLimitError:
+        print("Rate limited, waiting 60s...")
+        time.sleep(60)
+        return convert_dialog(client, config, system_prompt, dialog)
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e}\nRaw response: {raw_text[:200]}")
+        return None
+    except Exception as e:
         print(f"Error converting dialog: {e}")
         return None
 
@@ -192,12 +206,17 @@ def main():
                 break
 
             dialog = example
+            if len(dialog) > 8:
+                continue
             result = convert_dialog(client, config, system_prompt, dialog)
 
             if result:
                 record = {"messages": result}
                 f.write(json.dumps(record) + "\n")
                 f.flush()
+
+            # Stay under rate limit (5 req/min = 13s between requests)
+            time.sleep(13)
 
 
 if __name__ == "__main__":
