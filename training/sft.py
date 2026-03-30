@@ -1,18 +1,14 @@
 """
-SFT training script for both stages.
+SFT training script for Fortnite style fine-tuning.
 
 Usage:
-    python training/sft.py --config configs/sft_openassistant.yaml
     python training/sft.py --config configs/sft_fortnite.yaml
 
-Both stages consume the same format:
-    {"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]}
+Fine-tunes SmolLM-360M-Instruct (which already has ChatML and instruction-following)
+directly on Fortnite-dialect conversations.
 
-Applies the ChatML template used by SmolLM-360M-Instruct:
-    <|im_start|>user
-    ...<|im_end|>
-    <|im_start|>assistant
-    ...<|im_end|>
+Dataset format:
+    {"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]}
 """
 
 import argparse
@@ -25,13 +21,6 @@ from trl import SFTConfig, SFTTrainer
 
 
 ROOT = Path(__file__).resolve().parent.parent
-
-CHATML_TEMPLATE = (
-    "{% for message in messages %}"
-    "{{'<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>' + '\\n'}}"
-    "{% endfor %}"
-    "{% if add_generation_prompt %}{{ '<|im_start|>assistant\\n' }}{% endif %}"
-)
 
 
 def load_config(path: str) -> dict:
@@ -59,30 +48,12 @@ def main():
     print(f"Loading model: {model_name}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-    # Ensure ChatML special tokens exist
-    special_tokens = {"additional_special_tokens": ["<|im_start|>", "<|im_end|>"]}
     if tokenizer.pad_token is None:
-        special_tokens["pad_token"] = "<|im_end|>"
-    tokenizer.add_special_tokens(special_tokens)
-
-    # Set the chat template
-    tokenizer.chat_template = CHATML_TEMPLATE
+        tokenizer.pad_token = tokenizer.eos_token
 
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    model.resize_token_embeddings(len(tokenizer))
 
-    # Load dataset — either from HF or local JSONL
-    if "dataset_path" in config:
-        dataset = load_jsonl_dataset(ROOT / config["dataset_path"])
-    else:
-        from datasets import load_dataset
-        dataset = load_dataset(config["dataset"], split="train")
-        # If loading pre-processed JSONL from the processed dir
-        processed_path = ROOT / "data" / "processed" / "openassistant_filtered.jsonl"
-        if processed_path.exists():
-            dataset = load_jsonl_dataset(str(processed_path))
-
+    dataset = load_jsonl_dataset(ROOT / config["dataset_path"])
     print(f"Training on {len(dataset)} conversations")
 
     training_args = SFTConfig(

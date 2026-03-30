@@ -120,61 +120,63 @@ def build_system_prompt(few_shot_examples: list[dict]) -> str:
     return prompt
 
 
-def convert_dialog(client, config, system_prompt, dialog):
+def convert_dialog(client, config, system_prompt, dialog, retries=2):
     turns = dialog_to_turns(dialog)
 
-    try:
-        response = client.messages.create(
-            model=config["model"],
-            max_tokens=config["max_tokens"],
-            temperature=config["temperature"],
-            system=system_prompt,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Convert the assistant turns in this conversation to Fortnite speak. "
-                        f"Keep user turns unchanged.\n\n"
-                        f"{json.dumps(turns, indent=2)}\n\n"
-                        f"Respond with only the JSON list of turns."
-                    ),
-                }
-            ],
-        )
-        raw_text = response.content[0].text.strip()
+    for attempt in range(retries):
+        try:
+            response = client.messages.create(
+                model=config["model"],
+                max_tokens=config["max_tokens"],
+                temperature=config["temperature"],
+                system=system_prompt,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Convert the assistant turns in this conversation to Fortnite speak. "
+                            f"Keep user turns unchanged.\n\n"
+                            f"{json.dumps(turns, indent=2)}\n\n"
+                            f"Respond with only the JSON list of turns."
+                        ),
+                    }
+                ],
+            )
+            raw_text = response.content[0].text.strip()
 
-        # Strip markdown code fences if present
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("\n", 1)[1]  # remove ```json line
-            raw_text = raw_text.rsplit("```", 1)[0].strip()
+            # Strip markdown code fences if present
+            if raw_text.startswith("```"):
+                raw_text = raw_text.split("\n", 1)[1]
+                raw_text = raw_text.rsplit("```", 1)[0].strip()
 
-        result = json.loads(raw_text)
-        # Validate structure
-        if not isinstance(result, list):
-            print(f"Validation fail: not a list, got {type(result).__name__}")
+            result = json.loads(raw_text)
+            # Validate structure
+            if not isinstance(result, list):
+                raise ValueError(f"not a list, got {type(result).__name__}")
+            if len(result) != len(turns):
+                raise ValueError(f"expected {len(turns)} turns, got {len(result)}")
+            for orig, conv in zip(turns, result):
+                if orig["role"] != conv.get("role"):
+                    raise ValueError(f"role mismatch, expected {orig['role']}, got {conv.get('role')}")
+            # Re-inject original user turns to ensure they're unchanged
+            for i, orig in enumerate(turns):
+                if orig["role"] == "user":
+                    result[i]["content"] = orig["content"]
+            return result
+        except anthropic.RateLimitError:
+            print("Rate limited, waiting 60s...")
+            time.sleep(60)
+            continue
+        except (json.JSONDecodeError, ValueError) as e:
+            if attempt < retries - 1:
+                time.sleep(2)
+                continue
+            print(f"Failed after {retries} attempts: {e}")
             return None
-        if len(result) != len(turns):
-            print(f"Validation fail: expected {len(turns)} turns, got {len(result)}")
+        except Exception as e:
+            print(f"Error converting dialog: {e}")
             return None
-        for orig, conv in zip(turns, result):
-            if orig["role"] != conv.get("role"):
-                print(f"Validation fail: role mismatch, expected {orig['role']}, got {conv.get('role')}")
-                return None
-        # Re-inject original user turns to ensure they're unchanged
-        for i, orig in enumerate(turns):
-            if orig["role"] == "user":
-                result[i]["content"] = orig["content"]
-        return result
-    except anthropic.RateLimitError:
-        print("Rate limited, waiting 60s...")
-        time.sleep(60)
-        return convert_dialog(client, config, system_prompt, dialog)
-    except json.JSONDecodeError as e:
-        print(f"JSON parse error: {e}\nRaw response: {raw_text[:200]}")
-        return None
-    except Exception as e:
-        print(f"Error converting dialog: {e}")
-        return None
+    return None
 
 
 def main():

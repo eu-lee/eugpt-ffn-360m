@@ -1,4 +1,4 @@
-model_name: outputs/sft_openassistant
+model_name: HuggingFaceTB/SmolLM-360M-Instruct
 dataset_path: data/processed/fortnite_dialogs.jsonl
 max_seq_length: 2048
 num_train_epochs: 3
